@@ -26,8 +26,8 @@ except Exception as e:
     )
 
 logger = logging.getLogger(__name__)
-logger.warning("""sunyf combine test for ds on ppu support correct response for multiple function call  @20250708-1524 \n
-               associate with this pr. https://github.com/sgl-project/sglang/pull/6655"""
+logger.warning("""sunyf combine test for ds on ppu. support correct response for multiple function call  @20250708-1524 \n
+               associate with this pr. https://github.com/sgl-project/sglang/pull/6655 in this version: 0.4.6.post1"""
                )
 
 TOOLS_TAG_LIST = [
