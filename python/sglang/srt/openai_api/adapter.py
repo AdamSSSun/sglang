@@ -20,11 +20,11 @@ import os
 import time
 import uuid
 from http import HTTPStatus
-from typing import Dict, List
+from typing import Dict, List, Optional, Union
 
 from fastapi import HTTPException, Request, UploadFile
 from fastapi.responses import ORJSONResponse, StreamingResponse
-from pydantic import ValidationError
+from pydantic import ValidationError,Field
 
 from sglang.srt.code_completion_parser import (
     generate_completion_prompt_from_request,
@@ -77,6 +77,19 @@ from sglang.utils import convert_json_schema_to_str, get_exception_traceback
 logger = logging.getLogger(__name__)
 
 chat_template_name = None
+
+class ToolCallAdamSun(ToolCall):
+    id: Optional[str] = None
+    index: Optional[int] = None
+
+class DeltaMessageAdamSun(DeltaMessage):
+    tool_calls: Optional[List[ToolCallAdamSun]] = Field(default=None, examples=[None])
+
+class ChatCompletionResponseStreamChoiceAdamSun(ChatCompletionResponseStreamChoice):
+    delta: DeltaMessageAdamSun
+
+class ChatCompletionStreamResponseAdamSun(ChatCompletionStreamResponse):
+    choices: List[ChatCompletionResponseStreamChoiceAdamSun]
 
 
 class FileMetadata:
@@ -1587,6 +1600,14 @@ async def v1_chat_completions(
                         # 2) if we found calls, we output them as separate chunk(s)
                         for call_item in calls:
                             # transform call_item -> FunctionResponse + ToolCall
+                            if call_item.name:
+                                # First chunk: include ID and function name
+                                tool_call_id = f"call_{uuid.uuid4().hex[:24]}"
+                                function_name = call_item.name
+                            else:
+                                # Subsequent chunks: null ID and name for argument deltas
+                                tool_call_id = None
+                                function_name = None
 
                             if finish_reason_type == "stop":
                                 latest_delta_len = 0
@@ -1611,16 +1632,19 @@ async def v1_chat_completions(
 
                                 finish_reason_type = "tool_calls"
 
-                            tool_call = ToolCall(
-                                id=str(call_item.tool_index),
+                            tool_call = ToolCallAdamSun(
+                                id=tool_call_id,
+                                index=str(call_item.tool_index),
                                 function=FunctionResponse(
-                                    name=call_item.name,
+                                    name=function_name,
                                     arguments=call_item.parameters,
                                 ),
                             )
-                            choice_data = ChatCompletionResponseStreamChoice(
+                            logger.warning("sunyf logger[tool_call]: ", tool_call.__dict__)
+                            logger.warning("sunyf logger[deltamessage]: ", DeltaMessage(tool_calls=[tool_call]).__dict__)
+                            choice_data = ChatCompletionResponseStreamChoiceAdamSun(
                                 index=index,
-                                delta=DeltaMessage(tool_calls=[tool_call]),
+                                delta=DeltaMessageAdamSun(tool_calls=[tool_call]),
                                 finish_reason=(
                                     None
                                     if request.stream_options
@@ -1628,7 +1652,8 @@ async def v1_chat_completions(
                                     else finish_reason_type
                                 ),  # additional chunk will be return
                             )
-                            chunk = ChatCompletionStreamResponse(
+                            logger.warning("sunyf logger[choice_data]: ", choice_data.__dict__)
+                            chunk = ChatCompletionStreamResponseAdamSun(
                                 id=content["meta_info"]["id"],
                                 created=created,
                                 choices=[choice_data],
